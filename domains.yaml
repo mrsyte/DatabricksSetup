@@ -1,0 +1,175 @@
+# ---------------------------------------------------------------------------
+# Domain Registry
+# ---------------------------------------------------------------------------
+# This file is the SINGLE SOURCE OF TRUTH for data domains, subject areas,
+# and ownership. It is intentionally separated from Terraform infrastructure
+# variables so that domain owners and data stewards can update it without
+# needing to understand HCL or touch any .tf file.
+#
+# HOW TO USE:
+#   - Add a domain:   copy an existing block, change the keys, open a PR
+#   - Add a subject:  add an entry under subject_areas in the domain, open a PR
+#   - Update an owner: change the email field(s), open a PR
+#   - Remove a domain: delete the block AND coordinate decommission (see DOMAIN_MANAGEMENT.md)
+#
+# After any change: CI runs `terraform plan` for review, then `terraform apply` on merge.
+#
+# OWNERSHIP FIELDS:
+#   owner.email       Primary contact – shown on Azure tags and Unity Catalog properties.
+#                     Should be a team alias, not an individual, so ownership survives rotation.
+#   owner.escalation  Manager or director-level contact for escalation.
+#   owner.slack       Slack channel or handle for fast incident routing.
+#
+# NETWORK:
+#   address_space     /16 CIDR. Must not overlap hub (10.0.x.x), ADB VNet (10.1.x.x),
+#                     or any other domain. Allocated at domain creation; never change after first apply.
+#
+# ACCESS (Entra group Object IDs):
+#   owners_group      Full control over the catalog and storage.
+#   engineers_group   Create/write to all schemas and external locations.
+#   viewers_group     Read-only SELECT on published data.
+# ---------------------------------------------------------------------------
+
+domains:
+
+  finance:
+    description: "Finance domain covering general ledger, accounts payable, treasury, risk and tax"
+    owner:
+      email:      "finance-data-team@contoso.com"
+      escalation: "cfo-office@contoso.com"
+      slack:      "#data-finance"
+    network:
+      address_space: "10.10.0.0/16"
+    access:
+      owners_group_id:    "11111111-0000-0000-0000-000000000001"
+      engineers_group_id: "11111111-0000-0000-0000-000000000002"
+      viewers_group_id:   "11111111-0000-0000-0000-000000000003"
+    subject_areas:
+      - name:        general_ledger
+        description: "Journal entries, trial balance, period-close reporting"
+        owner:       "gl-team@contoso.com"
+      - name:        accounts_payable
+        description: "Vendor invoices, payment runs, aging, early-pay discounts"
+        owner:       "ap-team@contoso.com"
+      - name:        treasury
+        description: "Cash positioning, FX exposure, short-term investments"
+        owner:       "treasury@contoso.com"
+      - name:        risk
+        description: "Credit risk, market risk, VaR, limit management"
+        owner:       "risk-team@contoso.com"
+      - name:        tax
+        description: "Tax provisioning, VAT reconciliation, transfer pricing"
+        owner:       "tax-team@contoso.com"
+
+  marketing:
+    description: "Marketing domain covering campaigns, segmentation, digital and attribution"
+    owner:
+      email:      "marketing-data-team@contoso.com"
+      escalation: "cmo-office@contoso.com"
+      slack:      "#data-marketing"
+    network:
+      address_space: "10.20.0.0/16"
+    access:
+      owners_group_id:    "22222222-0000-0000-0000-000000000001"
+      engineers_group_id: "22222222-0000-0000-0000-000000000002"
+      viewers_group_id:   "22222222-0000-0000-0000-000000000003"
+    subject_areas:
+      - name:        campaigns
+        description: "Campaign performance, spend, reach and frequency"
+        owner:       "campaigns-team@contoso.com"
+      - name:        customer_segments
+        description: "RFM segments, propensity scores, lifetime value"
+        owner:       "cust-analytics@contoso.com"
+      - name:        digital_analytics
+        description: "Web/app clickstream, SEO, conversion funnels"
+        owner:       "digital-team@contoso.com"
+      - name:        attribution
+        description: "Multi-touch attribution and media mix modelling"
+        owner:       "attribution@contoso.com"
+
+  operations:
+    description: "Operations domain covering inventory, production, logistics and quality"
+    owner:
+      email:      "ops-data-team@contoso.com"
+      escalation: "coo-office@contoso.com"
+      slack:      "#data-operations"
+    network:
+      address_space: "10.30.0.0/16"
+    access:
+      owners_group_id:    "33333333-0000-0000-0000-000000000001"
+      engineers_group_id: "33333333-0000-0000-0000-000000000002"
+      viewers_group_id:   "33333333-0000-0000-0000-000000000003"
+    subject_areas:
+      - name:        inventory
+        description: "Stock levels, reorder points, warehouse locations"
+        owner:       "inventory@contoso.com"
+      - name:        production
+        description: "Work orders, yield, OEE, downtime events"
+        owner:       "production@contoso.com"
+      - name:        logistics
+        description: "Shipment tracking, carrier performance, delivery SLA"
+        owner:       "logistics@contoso.com"
+      - name:        quality
+        description: "Defect rates, inspection results, non-conformance reports"
+        owner:       "quality@contoso.com"
+      - name:        maintenance
+        description: "Predictive maintenance, asset health, MTBF/MTTR"
+        owner:       "maintenance@contoso.com"
+
+  hr:
+    description: "HR domain covering headcount, payroll, performance and talent — restricted"
+    owner:
+      email:      "hr-data-team@contoso.com"
+      escalation: "chro-office@contoso.com"
+      slack:      "#data-hr-private"
+    network:
+      address_space: "10.40.0.0/16"
+    access:
+      owners_group_id:    "44444444-0000-0000-0000-000000000001"
+      engineers_group_id: "44444444-0000-0000-0000-000000000002"
+      viewers_group_id:   "44444444-0000-0000-0000-000000000003"
+    subject_areas:
+      - name:        headcount
+        description: "Org chart, FTE count, attrition, tenure distribution"
+        owner:       "hr-analytics@contoso.com"
+      - name:        payroll
+        description: "Compensation bands, bonus, payroll runs (highly confidential)"
+        owner:       "hr-payroll@contoso.com"
+      - name:        performance
+        description: "Review scores, goal attainment, 360 feedback"
+        owner:       "hr-perf@contoso.com"
+      - name:        learning
+        description: "Training completion, skills matrix, certifications"
+        owner:       "hr-learning@contoso.com"
+      - name:        talent_acquisition
+        description: "Requisitions, pipeline stages, time-to-hire, source of hire"
+        owner:       "ta-team@contoso.com"
+
+  supply_chain:
+    description: "Supply chain domain covering procurement, suppliers, demand and shipping"
+    owner:
+      email:      "sc-data-team@contoso.com"
+      escalation: "cpo-office@contoso.com"
+      slack:      "#data-supply-chain"
+    network:
+      address_space: "10.50.0.0/16"
+    access:
+      owners_group_id:    "55555555-0000-0000-0000-000000000001"
+      engineers_group_id: "55555555-0000-0000-0000-000000000002"
+      viewers_group_id:   "55555555-0000-0000-0000-000000000003"
+    subject_areas:
+      - name:        procurement
+        description: "PO lifecycle, spend analytics, sourcing events"
+        owner:       "procurement@contoso.com"
+      - name:        suppliers
+        description: "Supplier master, scorecards, risk ratings"
+        owner:       "supplier-mgmt@contoso.com"
+      - name:        demand_forecast
+        description: "Statistical forecasting, consensus demand plan"
+        owner:       "planning@contoso.com"
+      - name:        warehouse
+        description: "Inbound/outbound movements, slot utilisation, yard management"
+        owner:       "warehouse@contoso.com"
+      - name:        shipping
+        description: "Carrier lanes, freight cost, customs clearance"
+        owner:       "logistics@contoso.com"

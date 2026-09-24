@@ -1,0 +1,56 @@
+# Copy to terraform.tfvars (never commit the real file to source control)
+
+environment         = "prod"
+location            = "centralus"
+hub_subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id           = "00000000-0000-0000-0000-000000000001"
+
+# Tagging
+app_name    = "databricks-platform"
+owner       = "data-platform-team@company.com"
+cost_center = "data-platform-0001"
+
+# Databricks account ID (from accounts.azuredatabricks.net → Settings)
+databricks_account_id = "00000000-0000-0000-0000-000000000002"
+
+# Object ID of the Entra group that will be workspace admins
+databricks_admins_group_object_id = "00000000-0000-0000-0000-000000000003"
+
+# Terraform service principal (see SETUP_GUIDE.md §1.2)
+databricks_admin_sp_client_id = "00000000-0000-0000-0000-000000000004"
+databricks_admin_sp_object_id = "00000000-0000-0000-0000-000000000005"
+
+# Hub network
+hub_vnet_address_space  = "10.0.0.0/16"
+adb_vnet_address_space  = "10.1.0.0/16"
+vpn_client_address_pool = ["172.16.0.0/22"]
+
+# Domains – add as many as needed; address_space must not overlap
+domains = {
+  finance = {
+    address_space      = "10.10.0.0/16"
+    owners_group_id    = "00000000-0000-0000-0000-000000000010"
+    engineers_group_id = "00000000-0000-0000-0000-000000000011"
+    viewers_group_id   = "00000000-0000-0000-0000-000000000012"
+    catalog_comment    = "Finance domain data"
+  }
+  marketing = {
+    address_space      = "10.20.0.0/16"
+    owners_group_id    = "00000000-0000-0000-0000-000000000020"
+    engineers_group_id = "00000000-0000-0000-0000-000000000021"
+    viewers_group_id   = "00000000-0000-0000-0000-000000000022"
+    catalog_comment    = "Marketing domain data"
+  }
+  operations = {
+    address_space      = "10.30.0.0/16"
+    owners_group_id    = "00000000-0000-0000-0000-000000000030"
+    engineers_group_id = "00000000-0000-0000-0000-000000000031"
+    viewers_group_id   = "00000000-0000-0000-0000-000000000032"
+    catalog_comment    = "Operations domain data"
+  }
+}
+
+tags = {
+  cost_center = "platform"
+  owner       = "data-platform-team"
+}

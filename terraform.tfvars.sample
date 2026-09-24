@@ -1,0 +1,144 @@
+# ---------------------------------------------------------------------------
+# SAMPLE – realistic multi-domain configuration for Central US
+# Replace every placeholder UUID / value with real data from your tenant.
+# Never commit this file with real credentials to source control.
+# ---------------------------------------------------------------------------
+
+environment         = "prod"
+location            = "centralus"
+hub_subscription_id = "aaaaaaaa-bbbb-cccc-dddd-000000000001"
+tenant_id           = "aaaaaaaa-bbbb-cccc-dddd-000000000002"
+
+# ── Tagging ───────────────────────────────────────────────────────────────
+app_name    = "databricks-platform"
+owner       = "data-platform-team@contoso.com"
+cost_center = "data-platform-9001"
+
+# ── Databricks account ────────────────────────────────────────────────────
+# Found at: https://accounts.azuredatabricks.net → Settings → General
+databricks_account_id = "aaaaaaaa-bbbb-cccc-dddd-000000000003"
+
+# Entra group whose members become Databricks workspace admins
+databricks_admins_group_object_id = "aaaaaaaa-bbbb-cccc-dddd-000000000099"
+
+# Terraform service principal used for deployment
+# client_id: found in App Registrations (also called Application ID)
+# object_id: found in Enterprise Applications → the same app → Object ID
+databricks_admin_sp_client_id = "aaaaaaaa-bbbb-cccc-dddd-000000000098"
+databricks_admin_sp_object_id = "aaaaaaaa-bbbb-cccc-dddd-000000000097"
+
+# ── Networking ────────────────────────────────────────────────────────────
+hub_vnet_address_space  = "10.0.0.0/16"
+adb_vnet_address_space  = "10.1.0.0/16"
+vpn_client_address_pool = ["172.16.0.0/22"]
+
+# ── Common tags ───────────────────────────────────────────────────────────
+tags = {
+  project = "databricks-hub-spoke"
+}
+
+# ── Domains ───────────────────────────────────────────────────────────────
+# Each domain → Unity Catalog catalog + spoke VNet + ADLS + Key Vault + KV scope.
+# Subject areas → dedicated schemas inside the domain catalog (in addition to
+# the always-created raw / curated / published zones).
+#
+# Address space layout:
+#   10.10.x.x  finance
+#   10.20.x.x  marketing
+#   10.30.x.x  operations
+#   10.40.x.x  hr
+#   10.50.x.x  supply_chain
+# ---------------------------------------------------------------------------
+
+domains = {
+
+  # ── Finance ──────────────────────────────────────────────────────────────
+  finance = {
+    address_space      = "10.10.0.0/16"
+    owner              = "finance-data-team@contoso.com"
+    owners_group_id    = "11111111-0000-0000-0000-000000000001"
+    engineers_group_id = "11111111-0000-0000-0000-000000000002"
+    viewers_group_id   = "11111111-0000-0000-0000-000000000003"
+    catalog_comment    = "Finance domain: GL, AP, treasury, risk and tax"
+
+    subject_areas = [
+      { name = "general_ledger",   comment = "General ledger transactions and balances",   owner = "gl-team@contoso.com" },
+      { name = "accounts_payable", comment = "Vendor invoices, payment runs, aging",        owner = "ap-team@contoso.com" },
+      { name = "treasury",         comment = "Cash position, FX, short-term investments",   owner = "treasury@contoso.com" },
+      { name = "risk",             comment = "Credit risk, market risk, limit management",  owner = "risk-team@contoso.com" },
+      { name = "tax",              comment = "Tax provisioning, VAT, transfer pricing",     owner = "tax-team@contoso.com" },
+    ]
+  }
+
+  # ── Marketing ─────────────────────────────────────────────────────────────
+  marketing = {
+    address_space      = "10.20.0.0/16"
+    owner              = "marketing-data-team@contoso.com"
+    owners_group_id    = "22222222-0000-0000-0000-000000000001"
+    engineers_group_id = "22222222-0000-0000-0000-000000000002"
+    viewers_group_id   = "22222222-0000-0000-0000-000000000003"
+    catalog_comment    = "Marketing domain: campaigns, segmentation, digital and attribution"
+
+    subject_areas = [
+      { name = "campaigns",          comment = "Campaign performance, spend and reach",              owner = "campaigns-team@contoso.com" },
+      { name = "customer_segments",  comment = "RFM segments, propensity scores, CLV",               owner = "cust-analytics@contoso.com" },
+      { name = "digital_analytics",  comment = "Web/app clickstream, SEO, conversion funnels",       owner = "digital-team@contoso.com" },
+      { name = "attribution",        comment = "Multi-touch attribution, media mix modelling",        owner = "attribution@contoso.com" },
+    ]
+  }
+
+  # ── Operations ────────────────────────────────────────────────────────────
+  operations = {
+    address_space      = "10.30.0.0/16"
+    owner              = "ops-data-team@contoso.com"
+    owners_group_id    = "33333333-0000-0000-0000-000000000001"
+    engineers_group_id = "33333333-0000-0000-0000-000000000002"
+    viewers_group_id   = "33333333-0000-0000-0000-000000000003"
+    catalog_comment    = "Operations domain: inventory, production, logistics and quality"
+
+    subject_areas = [
+      { name = "inventory",    comment = "Stock levels, reorder points, warehouse locations",  owner = "inventory@contoso.com" },
+      { name = "production",   comment = "Work orders, yield, OEE, downtime",                  owner = "production@contoso.com" },
+      { name = "logistics",    comment = "Shipments, carrier performance, delivery SLA",        owner = "logistics@contoso.com" },
+      { name = "quality",      comment = "Defect rates, inspection results, NCRs",              owner = "quality@contoso.com" },
+      { name = "maintenance",  comment = "Predictive maintenance, asset health, MTBF",          owner = "maintenance@contoso.com" },
+    ]
+  }
+
+  # ── HR ────────────────────────────────────────────────────────────────────
+  # NOTE: HR data is sensitive – restrict viewer and engineer groups tightly
+  hr = {
+    address_space      = "10.40.0.0/16"
+    owner              = "hr-data-team@contoso.com"
+    owners_group_id    = "44444444-0000-0000-0000-000000000001"
+    engineers_group_id = "44444444-0000-0000-0000-000000000002"
+    viewers_group_id   = "44444444-0000-0000-0000-000000000003"
+    catalog_comment    = "HR domain: headcount, payroll, performance, learning – restricted"
+
+    subject_areas = [
+      { name = "headcount",          comment = "Org chart, FTE count, attrition, tenure",              owner = "hr-analytics@contoso.com" },
+      { name = "payroll",            comment = "Compensation bands, bonus, payroll runs – highly confidential", owner = "hr-payroll@contoso.com" },
+      { name = "performance",        comment = "Review scores, goal attainment, 360 feedback",         owner = "hr-perf@contoso.com" },
+      { name = "learning",           comment = "Training completion, skills matrix, certifications",    owner = "hr-learning@contoso.com" },
+      { name = "talent_acquisition", comment = "Requisitions, pipeline, time-to-hire, source of hire", owner = "ta-team@contoso.com" },
+    ]
+  }
+
+  # ── Supply Chain ──────────────────────────────────────────────────────────
+  supply_chain = {
+    address_space      = "10.50.0.0/16"
+    owner              = "sc-data-team@contoso.com"
+    owners_group_id    = "55555555-0000-0000-0000-000000000001"
+    engineers_group_id = "55555555-0000-0000-0000-000000000002"
+    viewers_group_id   = "55555555-0000-0000-0000-000000000003"
+    catalog_comment    = "Supply chain domain: procurement, suppliers, demand and logistics"
+
+    subject_areas = [
+      { name = "procurement",      comment = "PO lifecycle, spend analytics, sourcing events",      owner = "procurement@contoso.com" },
+      { name = "suppliers",        comment = "Supplier master, scorecards, risk ratings",           owner = "supplier-mgmt@contoso.com" },
+      { name = "demand_forecast",  comment = "Statistical forecasting, consensus demand plan",      owner = "planning@contoso.com" },
+      { name = "warehouse",        comment = "Inbound/outbound movements, slot utilisation",        owner = "warehouse@contoso.com" },
+      { name = "shipping",         comment = "Carrier lanes, freight cost, customs clearance",      owner = "logistics@contoso.com" },
+    ]
+  }
+}
