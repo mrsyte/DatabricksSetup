@@ -40,6 +40,16 @@ variable "firewall_private_ip" {
   type = string
 }
 
+variable "dns_resource_group_name" {
+  description = "Resource group containing the shared private DNS zones"
+  type        = string
+}
+
+variable "pe_dns_zone_adb_id" {
+  description = "Private DNS zone ID for privatelink.azuredatabricks.net"
+  type        = string
+}
+
 variable "pe_dns_zone_blob_id" {
   type = string
 }
@@ -54,11 +64,6 @@ variable "pe_dns_zone_kv_id" {
 
 variable "log_analytics_id" {
   type = string
-}
-
-variable "workspace_principal_id" {
-  description = "Databricks workspace MSI – granted Storage Blob Data Contributor on domain storage"
-  type        = string
 }
 
 variable "tags" {

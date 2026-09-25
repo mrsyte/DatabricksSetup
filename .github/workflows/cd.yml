@@ -139,6 +139,24 @@ jobs:
           github.event.inputs.dry_run != 'true'
         run: terraform apply -input=false -auto-approve tfplan
 
+      # Requires network access to workspace private endpoints.
+      # Enable by setting the WORKSPACE_BOOTSTRAP_ENABLED repository variable to 'true'
+      # and using a self-hosted runner inside the hub VNet (or running on VPN).
+      - name: Bootstrap domain workspaces
+        if: |
+          steps.plan.outputs.exitcode == '2' &&
+          github.event.inputs.dry_run != 'true' &&
+          vars.WORKSPACE_BOOTSTRAP_ENABLED == 'true'
+        env:
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
+          KEYVAULT_IDS_JSON:        ${{ steps.tf-output.outputs.kv_uris }}
+        run: |
+          terraform output -json domain_workspace_urls > /tmp/workspaces.json
+          export KEYVAULT_IDS_JSON="$(terraform output -json domain_keyvault_uris 2>/dev/null || echo '{}')"
+          python scripts/workspace_bootstrap.py /tmp/workspaces.json
+
       - name: Upload state summary
         if: always()
         run: terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY" || true
@@ -201,6 +219,20 @@ jobs:
           steps.plan.outputs.exitcode == '2' &&
           github.event.inputs.dry_run != 'true'
         run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Bootstrap domain workspaces
+        if: |
+          steps.plan.outputs.exitcode == '2' &&
+          github.event.inputs.dry_run != 'true' &&
+          vars.WORKSPACE_BOOTSTRAP_ENABLED == 'true'
+        env:
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          terraform output -json domain_workspace_urls > /tmp/workspaces.json
+          export KEYVAULT_IDS_JSON="$(terraform output -json domain_keyvault_uris 2>/dev/null || echo '{}')"
+          python scripts/workspace_bootstrap.py /tmp/workspaces.json
 
       - name: Upload state summary
         if: always()
@@ -266,6 +298,20 @@ jobs:
           steps.plan.outputs.exitcode == '2' &&
           github.event.inputs.dry_run != 'true'
         run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Bootstrap domain workspaces
+        if: |
+          steps.plan.outputs.exitcode == '2' &&
+          github.event.inputs.dry_run != 'true' &&
+          vars.WORKSPACE_BOOTSTRAP_ENABLED == 'true'
+        env:
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          terraform output -json domain_workspace_urls > /tmp/workspaces.json
+          export KEYVAULT_IDS_JSON="$(terraform output -json domain_keyvault_uris 2>/dev/null || echo '{}')"
+          python scripts/workspace_bootstrap.py /tmp/workspaces.json
 
       - name: Upload state summary
         if: always()

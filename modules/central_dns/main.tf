@@ -8,12 +8,6 @@ locals {
     "servicebus" = "privatelink.servicebus.windows.net"
     "eventhub"   = "privatelink.eventhub.windows.net"
   }
-
-  # All VNets that need links: hub + every spoke
-  all_vnet_ids = merge(
-    { hub = var.hub_vnet_id },
-    var.spoke_vnet_ids
-  )
 }
 
 # ---------------------------------------------------------------------------
@@ -27,26 +21,17 @@ resource "azurerm_private_dns_zone" "zones" {
 }
 
 # ---------------------------------------------------------------------------
-# Link each zone to the hub VNet + all spoke VNets
-# Flat key: "{zone_key}-{vnet_key}"
+# Link each zone to the hub VNet only.
+# Each domain spoke registers itself via its own VNet links
+# (see modules/domain_spoke/main.tf) – this avoids a dependency cycle.
 # ---------------------------------------------------------------------------
-resource "azurerm_private_dns_zone_virtual_network_link" "links" {
-  for_each = {
-    for pair in flatten([
-      for zone_key, zone in azurerm_private_dns_zone.zones : [
-        for vnet_key, vnet_id in local.all_vnet_ids : {
-          key       = "${zone_key}-${vnet_key}"
-          zone_name = zone.name
-          vnet_id   = vnet_id
-        }
-      ]
-    ]) : pair.key => pair
-  }
+resource "azurerm_private_dns_zone_virtual_network_link" "hub" {
+  for_each = azurerm_private_dns_zone.zones
 
-  name                  = "link-${each.key}"
+  name                  = "link-${each.key}-hub"
   resource_group_name   = var.resource_group_name
-  private_dns_zone_name = each.value.zone_name
-  virtual_network_id    = each.value.vnet_id
+  private_dns_zone_name = each.value.name
+  virtual_network_id    = var.hub_vnet_id
   registration_enabled  = false
   tags                  = var.tags
 }

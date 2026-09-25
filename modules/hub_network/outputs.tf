@@ -33,3 +33,8 @@ output "dns_resolver_inbound_ip" {
 output "metastore_storage_id" {
   value = "${azurerm_storage_account.metastore.id}/blobServices/default/containers/${azurerm_storage_container.metastore.name}"
 }
+
+output "metastore_access_connector_id" {
+  description = "Access Connector ID for Unity Catalog metastore root storage credential"
+  value       = azurerm_databricks_access_connector.metastore.id
+}

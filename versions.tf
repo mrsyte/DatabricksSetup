@@ -43,16 +43,12 @@ provider "azurerm" {
   }
 }
 
-# Account-level Databricks provider (Unity Catalog, SCIM)
+# Account-level Databricks provider (Unity Catalog, group sync, metastore)
+# All Databricks resources use this provider. Workspace-level config
+# (cluster policies, workspace conf, secret scopes) is applied by
+# scripts/workspace_bootstrap.py after terraform apply.
 provider "databricks" {
   alias      = "account"
   host       = "https://accounts.azuredatabricks.net"
   account_id = var.databricks_account_id
-}
-
-# Workspace-level Databricks provider – URL resolved after workspace creation
-provider "databricks" {
-  alias                  = "workspace"
-  host                   = module.databricks_workspace.workspace_url
-  azure_workspace_resource_id = module.databricks_workspace.workspace_id
 }

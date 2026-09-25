@@ -40,7 +40,7 @@ variable "billing_account_name" {
       az billing enrollment-account list --query "[].name" -o tsv
     For MCA: the billing profile / invoice section name.
   EOT
-  type = string
+  type        = string
 }
 
 variable "billing_scope" {
@@ -52,7 +52,7 @@ variable "billing_scope" {
       az billing account list
       az billing enrollment-account list
   EOT
-  type = string
+  type        = string
 }
 
 variable "management_group_id" {

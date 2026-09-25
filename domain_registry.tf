@@ -36,9 +36,9 @@ locals {
   # Per-domain Azure tags – teams_channel surfaces in Azure Portal and cost reports
   domain_tags = {
     for domain_name, domain_cfg in local.domains : domain_name => merge(local.common_tags, {
-      domain         = domain_name
-      domain_owner   = domain_cfg.owner != "" ? domain_cfg.owner : var.owner
-      teams_channel  = domain_cfg.teams_channel
+      domain        = domain_name
+      domain_owner  = domain_cfg.owner != "" ? domain_cfg.owner : var.owner
+      teams_channel = domain_cfg.teams_channel
     })
   }
 }

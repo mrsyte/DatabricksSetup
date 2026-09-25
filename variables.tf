@@ -107,15 +107,6 @@ variable "vpn_aad_audience" {
 }
 
 # ---------------------------------------------------------------------------
-# Databricks workspace VNet (adb spoke)
-# ---------------------------------------------------------------------------
-variable "adb_vnet_address_space" {
-  description = "CIDR for the Databricks workspace VNet (spoke)"
-  type        = string
-  default     = "10.1.0.0/16"
-}
-
-# ---------------------------------------------------------------------------
 # Domains (OVERRIDE ONLY)
 # ---------------------------------------------------------------------------
 # The primary domain registry is domains.yaml. Set this variable only when

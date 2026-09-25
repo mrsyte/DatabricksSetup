@@ -150,7 +150,7 @@ resource "azurerm_firewall_policy_rule_collection_group" "databricks" {
     priority = 210
 
     rule {
-      name = "adb-control-plane"
+      name             = "adb-control-plane"
       source_addresses = ["*"]
       protocols {
         type = "Https"
@@ -368,6 +368,26 @@ resource "azurerm_storage_container" "metastore" {
   name                  = "metastore"
   storage_account_name  = azurerm_storage_account.metastore.name
   container_access_type = "private"
+}
+
+# ---------------------------------------------------------------------------
+# Access Connector for Unity Catalog metastore root storage
+# ---------------------------------------------------------------------------
+resource "azurerm_databricks_access_connector" "metastore" {
+  name                = "aac-${var.prefix}-metastore"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.metastore_storage.name
+  tags                = var.tags
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+resource "azurerm_role_assignment" "metastore_connector_storage" {
+  scope                = azurerm_storage_account.metastore.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_databricks_access_connector.metastore.identity[0].principal_id
 }
 
 # ---------------------------------------------------------------------------
