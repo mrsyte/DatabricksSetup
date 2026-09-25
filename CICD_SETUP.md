@@ -104,6 +104,7 @@ Navigate to: **Settings → Secrets and variables → Actions**
 | `DATABRICKS_ADMIN_SP_CLIENT_ID` | SP client ID (same SP or a dedicated one) | same as `AZURE_CLIENT_ID` if using one SP |
 | `DATABRICKS_ADMIN_SP_OBJECT_ID` | SP object ID in Azure AD | `az ad sp show --id <appId> --query id -o tsv` |
 | `DATABRICKS_ADMIN_SP_CLIENT_SECRET` | SP client secret | generated at SP creation; rotate every 90 days |
+| `TEAMS_DEPLOYMENTS_WEBHOOK_URL` | Teams Incoming Webhook URL | See Step 6 – Teams webhook setup |
 
 > **Note on `DATABRICKS_ADMIN_SP_CLIENT_SECRET`**: OIDC covers the `azurerm`
 > provider. The `databricks` workspace provider also needs a credential to reach
@@ -123,6 +124,7 @@ gh secret set DATABRICKS_ACCOUNT_ID     --repo "$REPO" --body "<value>"
 gh secret set DATABRICKS_ADMIN_SP_CLIENT_ID    --repo "$REPO" --body "<value>"
 gh secret set DATABRICKS_ADMIN_SP_OBJECT_ID    --repo "$REPO" --body "<value>"
 gh secret set DATABRICKS_ADMIN_SP_CLIENT_SECRET --repo "$REPO" --body "<value>"
+gh secret set TEAMS_DEPLOYMENTS_WEBHOOK_URL     --repo "$REPO" --body "<webhook-url>"
 ```
 
 ---
@@ -174,7 +176,39 @@ Fields to fill in:
 
 ---
 
-## Step 6 – Checkov exceptions
+## Step 6 – Teams Deployments webhook
+
+Every apply (dev, uat, prod) posts a card to a Microsoft Teams channel when domain changes are deployed. This is optional — if the secret is absent the script exits cleanly.
+
+### 6a – Create the Incoming Webhook in Teams
+
+1. Open Microsoft Teams and navigate to the **Deployments** channel (create it if needed, e.g. under a *Data Platform* team).
+2. Click **…** next to the channel name → **Connectors** → search **Incoming Webhook** → **Add** → **Configure**.
+3. Name it `Databricks Deployments`, optionally upload an icon, then click **Create**.
+4. Copy the generated webhook URL — it looks like `https://contoso.webhook.office.com/webhookb2/…`.
+
+> **Teams Workflows connector (newer)**: If your tenant uses the newer *Workflows* connector instead of the legacy Incoming Webhook, create a *Post to a channel when a webhook request is received* flow in Power Automate and use that URL instead. The payload format is identical.
+
+### 6b – Store the URL as a GitHub Secret
+
+```bash
+gh secret set TEAMS_DEPLOYMENTS_WEBHOOK_URL \
+  --repo "mrsyte/DatabricksSetup" \
+  --body "https://contoso.webhook.office.com/webhookb2/..."
+```
+
+The CD workflow reads `secrets.TEAMS_DEPLOYMENTS_WEBHOOK_URL` in each deploy job. If the secret is empty or not set, the notification is silently skipped.
+
+### What the card shows
+
+- ✅ / ❌ header with environment, actor, and UTC timestamp
+- List of domain changes detected by diffing `domains.yaml` against the previous commit
+- Commit SHA + first line of commit message
+- **View Workflow Run** and **View Commit** action buttons
+
+---
+
+## Step 8 – Checkov exceptions
 
 If legitimate resources trigger Checkov findings (e.g. a VPN Gateway SKU
 that Checkov flags as low), add exceptions to `.checkov.yaml`:
@@ -199,7 +233,8 @@ GitHub Secrets (Settings → Secrets → Actions)
 ├── DATABRICKS_ACCOUNT_ID                ← Databricks account GUID
 ├── DATABRICKS_ADMIN_SP_CLIENT_ID        ← SP appId for databricks provider
 ├── DATABRICKS_ADMIN_SP_OBJECT_ID        ← SP object ID for RBAC assignments
-└── DATABRICKS_ADMIN_SP_CLIENT_SECRET    ← SP secret for databricks workspace provider
+├── DATABRICKS_ADMIN_SP_CLIENT_SECRET    ← SP secret for databricks workspace provider
+└── TEAMS_DEPLOYMENTS_WEBHOOK_URL        ← Teams Incoming Webhook (optional – skipped if absent)
 
 GitHub Variables (Settings → Secrets → Variables tab)
 ├── TF_BACKEND_RG    ← resource group of TF state storage account

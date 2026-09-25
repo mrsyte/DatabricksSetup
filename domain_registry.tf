@@ -14,6 +14,7 @@ locals {
     for name, cfg in local._yaml.domains : name => {
       address_space      = cfg.network.address_space
       owner              = cfg.owner.email
+      teams_channel      = try(cfg.owner.teams_channel, "")
       owners_group_id    = cfg.access.owners_group_id
       engineers_group_id = cfg.access.engineers_group_id
       viewers_group_id   = cfg.access.viewers_group_id
@@ -32,11 +33,12 @@ locals {
   # In normal usage var.domains is null and only the YAML is used.
   domains = var.domains != null ? merge(local._domains_from_yaml, var.domains) : local._domains_from_yaml
 
-  # Domain tags rebuilt from resolved local.domains (not var.domains)
+  # Per-domain Azure tags – teams_channel surfaces in Azure Portal and cost reports
   domain_tags = {
     for domain_name, domain_cfg in local.domains : domain_name => merge(local.common_tags, {
-      domain       = domain_name
-      domain_owner = domain_cfg.owner != "" ? domain_cfg.owner : var.owner
+      domain         = domain_name
+      domain_owner   = domain_cfg.owner != "" ? domain_cfg.owner : var.owner
+      teams_channel  = domain_cfg.teams_channel
     })
   }
 }

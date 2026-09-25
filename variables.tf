@@ -132,6 +132,7 @@ variable "domains" {
   type = map(object({
     address_space      = string
     owner              = optional(string, "")
+    teams_channel      = optional(string, "")
     owners_group_id    = string
     engineers_group_id = string
     viewers_group_id   = string

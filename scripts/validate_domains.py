@@ -27,10 +27,12 @@ RESERVED_CIDRS = [
     ipaddress.ip_network("172.16.0.0/22"), # VPN client pool
 ]
 
-DOMAIN_NAME_RE  = re.compile(r'^[a-z][a-z0-9_]{1,30}$')
-SUBJECT_NAME_RE = re.compile(r'^[a-z][a-z0-9_]{1,50}$')
-EMAIL_RE        = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-UUID_RE         = re.compile(
+DOMAIN_NAME_RE   = re.compile(r'^[a-z][a-z0-9_]{1,30}$')
+SUBJECT_NAME_RE  = re.compile(r'^[a-z][a-z0-9_]{1,50}$')
+EMAIL_RE         = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+# "Team Name/Channel Name" – letters, digits, spaces, hyphens, parens, slashes
+TEAMS_CHANNEL_RE = re.compile(r'^[^/]+/[^/]+$')
+UUID_RE          = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
     re.IGNORECASE,
 )
@@ -52,11 +54,22 @@ def validate_email(value: str, field: str) -> None:
         err(f"{field}: '{value}' is not a valid email address")
 
 
+def validate_teams_channel(value: str, field: str) -> None:
+    if not TEAMS_CHANNEL_RE.match(value):
+        err(
+            f"{field}: '{value}' must be in 'Team Name/Channel Name' format "
+            f"(e.g. 'Data Platform/Finance')"
+        )
+
+
 def validate_uuid(value: str, field: str) -> None:
     if not UUID_RE.match(value):
         err(f"{field}: '{value}' does not look like an Azure Object ID (UUID)")
     if "00000000" in value:
-        warn(f"{field}: '{value}' still contains a placeholder UUID – replace with a real Object ID")
+        warn(
+            f"{field}: '{value}' still contains a placeholder UUID "
+            f"– replace with a real Object ID"
+        )
 
 
 def validate_cidr(value: str, domain: str, seen: list) -> None:
@@ -104,11 +117,9 @@ def main(path: str) -> int:
     for name, cfg in domains.items():
         print(f"[{name}]")
 
-        # Domain name format
         if not DOMAIN_NAME_RE.match(name):
             err(f"domain name '{name}': must match ^[a-z][a-z0-9_]{{1,30}}$")
 
-        # Required sections
         for section in ("owner", "network", "access"):
             if section not in cfg:
                 err(f"domain '{name}': missing required section '{section}'")
@@ -121,6 +132,12 @@ def main(path: str) -> int:
                 err(f"domain '{name}' owner.{field}: required but missing")
             else:
                 validate_email(val, f"domain '{name}' owner.{field}")
+
+        teams_ch = owner.get("teams_channel", "")
+        if not teams_ch:
+            err(f"domain '{name}' owner.teams_channel: required but missing")
+        else:
+            validate_teams_channel(teams_ch, f"domain '{name}' owner.teams_channel")
 
         # Network
         network = cfg.get("network", {})
@@ -156,7 +173,9 @@ def main(path: str) -> int:
             if sa_owner and not EMAIL_RE.match(sa_owner):
                 err(f"domain '{name}' subject '{sa_name}' owner: '{sa_owner}' is not a valid email")
 
-        print(f"  subjects: {list(seen_subjects) or '(none – only landing zones)'}")
+        channel_display = owner.get("teams_channel", "(none)")
+        print(f"  teams:    {channel_display}")
+        print(f"  subjects: {sorted(seen_subjects) or '(none – only landing zones)'}")
 
     print()
     if errors:

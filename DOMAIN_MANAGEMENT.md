@@ -9,7 +9,7 @@ Terraform reads this file and propagates every field automatically:
 |---|---|
 | `owner.email` | Azure resource tags (`domain_owner`), Unity Catalog catalog/schema `properties.owner`, cluster tag `owner` |
 | `owner.escalation` | Azure resource tags (`escalation`) |
-| `owner.slack` | Azure resource tags (`slack_channel`) |
+| `owner.teams_channel` | Azure resource tags (`teams_channel`), Unity Catalog catalog `properties.teams_channel` |
 | `description` | Unity Catalog catalog comment |
 | `subject_areas[].owner` | Schema-level `properties.owner` in Unity Catalog |
 | `access.*_group_id` | Azure RBAC role assignments + Databricks Unity Catalog grants |
@@ -23,7 +23,7 @@ Terraform reads this file and propagates every field automatically:
 
 1. Open `domains.yaml` in your editor (or directly on GitHub).
 2. Find the domain block (e.g. `finance:`).
-3. Update `owner.email` (and optionally `owner.escalation`, `owner.slack`).
+3. Update `owner.email` (and optionally `owner.escalation`, `owner.teams_channel`).
 4. Validate locally:
    ```bash
    python scripts/validate_domains.py
@@ -72,7 +72,7 @@ Before editing `domains.yaml` you need three things from your Azure AD admin:
 
    **Next available:** 10.60.0.0/16, 10.70.0.0/16, etc.
 
-3. **Owner contact information**: team alias email, escalation email, Slack channel.
+3. **Owner contact information**: team alias email, escalation email, Microsoft Teams channel (format: `"Team Name/Channel Name"`).
 
 ### Step-by-step
 
@@ -85,7 +85,7 @@ Before editing `domains.yaml` you need three things from your Azure AD admin:
     owner:
       email:      "cs-data-team@contoso.com"
       escalation: "vp-cs@contoso.com"
-      slack:      "#data-customer-success"
+      teams_channel: "Data Platform/Customer Success"
     network:
       address_space: "10.60.0.0/16"   # next available /16
     access:
@@ -276,7 +276,7 @@ jobs:
 
 | Task | File to edit | Terraform impact |
 |---|---|---|
-| Update domain owner email | `domains.yaml` | Tag updates only (fast, in-place) |
+| Update domain owner / Teams channel | `domains.yaml` | Tag updates only (fast, in-place) |
 | Add subject area | `domains.yaml` | New schema created |
 | Remove subject area | `domains.yaml` | Schema destroyed (data not deleted) |
 | Add new domain | `domains.yaml` + create 3 Entra groups | New VNet, storage, KV, catalog created |

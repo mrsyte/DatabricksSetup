@@ -15,10 +15,13 @@
 # After any change: CI runs `terraform plan` for review, then `terraform apply` on merge.
 #
 # OWNERSHIP FIELDS:
-#   owner.email       Primary contact – shown on Azure tags and Unity Catalog properties.
-#                     Should be a team alias, not an individual, so ownership survives rotation.
-#   owner.escalation  Manager or director-level contact for escalation.
-#   owner.slack       Slack channel or handle for fast incident routing.
+#   owner.email         Primary contact – shown on Azure tags and Unity Catalog properties.
+#                       Should be a team alias, not an individual, so ownership survives rotation.
+#   owner.escalation    Manager or director-level contact for escalation.
+#   owner.teams_channel Teams channel for fast incident routing.
+#                       Format: "Team Name/Channel Name"
+#                       Example: "Data Platform/Finance" means the Finance channel
+#                       inside the Data Platform team.
 #
 # NETWORK:
 #   address_space     /16 CIDR. Must not overlap hub (10.0.x.x), ADB VNet (10.1.x.x),
@@ -35,9 +38,9 @@ domains:
   finance:
     description: "Finance domain covering general ledger, accounts payable, treasury, risk and tax"
     owner:
-      email:      "finance-data-team@contoso.com"
-      escalation: "cfo-office@contoso.com"
-      slack:      "#data-finance"
+      email:         "finance-data-team@contoso.com"
+      escalation:    "cfo-office@contoso.com"
+      teams_channel: "Data Platform/Finance"
     network:
       address_space: "10.10.0.0/16"
     access:
@@ -64,9 +67,9 @@ domains:
   marketing:
     description: "Marketing domain covering campaigns, segmentation, digital and attribution"
     owner:
-      email:      "marketing-data-team@contoso.com"
-      escalation: "cmo-office@contoso.com"
-      slack:      "#data-marketing"
+      email:         "marketing-data-team@contoso.com"
+      escalation:    "cmo-office@contoso.com"
+      teams_channel: "Data Platform/Marketing"
     network:
       address_space: "10.20.0.0/16"
     access:
@@ -90,9 +93,9 @@ domains:
   operations:
     description: "Operations domain covering inventory, production, logistics and quality"
     owner:
-      email:      "ops-data-team@contoso.com"
-      escalation: "coo-office@contoso.com"
-      slack:      "#data-operations"
+      email:         "ops-data-team@contoso.com"
+      escalation:    "coo-office@contoso.com"
+      teams_channel: "Data Platform/Operations"
     network:
       address_space: "10.30.0.0/16"
     access:
@@ -119,9 +122,9 @@ domains:
   hr:
     description: "HR domain covering headcount, payroll, performance and talent — restricted"
     owner:
-      email:      "hr-data-team@contoso.com"
-      escalation: "chro-office@contoso.com"
-      slack:      "#data-hr-private"
+      email:         "hr-data-team@contoso.com"
+      escalation:    "chro-office@contoso.com"
+      teams_channel: "Data Platform/HR (Private)"
     network:
       address_space: "10.40.0.0/16"
     access:
@@ -148,9 +151,9 @@ domains:
   supply_chain:
     description: "Supply chain domain covering procurement, suppliers, demand and shipping"
     owner:
-      email:      "sc-data-team@contoso.com"
-      escalation: "cpo-office@contoso.com"
-      slack:      "#data-supply-chain"
+      email:         "sc-data-team@contoso.com"
+      escalation:    "cpo-office@contoso.com"
+      teams_channel: "Data Platform/Supply Chain"
     network:
       address_space: "10.50.0.0/16"
     access:

@@ -168,6 +168,7 @@ module "unity_catalog" {
       viewers_group_id      = v.viewers_group_id
       catalog_comment       = v.catalog_comment
       owner                 = v.owner
+      teams_channel         = v.teams_channel
       subject_areas         = v.subject_areas
     }
   }

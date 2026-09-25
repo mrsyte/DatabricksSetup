@@ -45,6 +45,7 @@ variable "domains" {
     viewers_group_id      = string
     catalog_comment       = string
     owner                 = string
+    teams_channel         = string
     subject_areas = list(object({
       name    = string
       comment = string

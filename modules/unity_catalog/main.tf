@@ -81,10 +81,11 @@ resource "databricks_catalog" "domain" {
   storage_root = each.value.storage_container_url
 
   properties = {
-    domain  = each.key
-    owner   = each.value.owner
-    app     = "databricks-platform"
-    managed = "terraform"
+    domain        = each.key
+    owner         = each.value.owner
+    teams_channel = each.value.teams_channel
+    app           = "databricks-platform"
+    managed       = "terraform"
   }
 
   depends_on = [databricks_external_location.domain, databricks_metastore_assignment.main]
