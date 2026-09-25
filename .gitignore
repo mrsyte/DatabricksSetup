@@ -4,9 +4,12 @@
 *.tfstate.backup
 
 # Variable files that may contain secrets
-terraform.tfvars
+# Root-level tfvars (real values) – use terraform.tfvars.example as template
+/terraform.tfvars
 *.auto.tfvars
 *.auto.tfvars.json
+# environments/*/terraform.tfvars are intentionally tracked (placeholder UUIDs only;
+# real secrets are injected by CI via TF_VAR_* environment variables)
 
 # Terraform working directories
 .terraform/

@@ -1,0 +1,258 @@
+name: CD – Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.tf"
+      - "domains.yaml"
+      - "environments/**"
+      - "scripts/**"
+  # Allow manually targeting a single environment (e.g. re-apply after drift)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, uat, prod]
+      dry_run:
+        description: "Plan only – do not apply"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false   # never cancel an in-flight apply
+
+permissions:
+  contents: read
+  id-token: write
+
+# ---------------------------------------------------------------------------
+# Shared step templates (YAML anchors)
+# ---------------------------------------------------------------------------
+x-tf-env: &tf-env
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_CLIENT_SECRET:   ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_SECRET }}
+  TF_VAR_databricks_account_id:           ${{ secrets.DATABRICKS_ACCOUNT_ID }}
+  TF_VAR_databricks_admin_sp_client_id:   ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_ID }}
+  TF_VAR_databricks_admin_sp_object_id:   ${{ secrets.DATABRICKS_ADMIN_SP_OBJECT_ID }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate: skip the pipeline if the only changes are docs / comments
+  # ---------------------------------------------------------------------------
+  changed:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      tf_changed: ${{ steps.filter.outputs.tf }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            tf:
+              - '**.tf'
+              - 'domains.yaml'
+              - 'environments/**'
+
+  # ---------------------------------------------------------------------------
+  # Pre-flight validation (same as CI but runs again on merge for safety)
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Pre-flight Validate
+    runs-on: ubuntu-latest
+    needs: changed
+    if: |
+      needs.changed.outputs.tf_changed == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install pyyaml && python scripts/validate_domains.py
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+
+  # ---------------------------------------------------------------------------
+  # Helper: reusable apply logic via a composite-like pattern
+  # Each deploy-* job calls the same set of steps with different env/inputs
+  # ---------------------------------------------------------------------------
+
+  # ── dev ────────────────────────────────────────────────────────────────────
+  deploy-dev:
+    name: Deploy – dev
+    runs-on: ubuntu-latest
+    needs: validate
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.environment == 'dev'
+    environment: dev
+    env: *tf-env
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev/databricks-hub-spoke.tfstate" \
+            -input=false
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file="environments/dev/terraform.tfvars" \
+            -input=false \
+            -no-color \
+            -out=tfplan 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Apply
+        if: |
+          steps.plan.outputs.exitcode == '2' &&
+          github.event.inputs.dry_run != 'true'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Upload state summary
+        if: always()
+        run: terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ── uat ────────────────────────────────────────────────────────────────────
+  deploy-uat:
+    name: Deploy – uat
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.environment == 'uat'
+    environment: uat
+    env: *tf-env
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=uat/databricks-hub-spoke.tfstate" \
+            -input=false
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file="environments/uat/terraform.tfvars" \
+            -input=false \
+            -no-color \
+            -out=tfplan 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Apply
+        if: |
+          steps.plan.outputs.exitcode == '2' &&
+          github.event.inputs.dry_run != 'true'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Upload state summary
+        if: always()
+        run: terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ── prod ───────────────────────────────────────────────────────────────────
+  # Production requires a manual approval gate configured in the GitHub
+  # "prod" Environment (Settings → Environments → prod → Required reviewers).
+  deploy-prod:
+    name: Deploy – prod
+    runs-on: ubuntu-latest
+    needs: deploy-uat
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.environment == 'prod'
+    environment: prod   # <── approval gate lives here
+    env: *tf-env
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=prod/databricks-hub-spoke.tfstate" \
+            -input=false
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file="environments/prod/terraform.tfvars" \
+            -input=false \
+            -no-color \
+            -out=tfplan 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Apply
+        if: |
+          steps.plan.outputs.exitcode == '2' &&
+          github.event.inputs.dry_run != 'true'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Upload state summary
+        if: always()
+        run: terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ---------------------------------------------------------------------------
+  # Notify on failure
+  # ---------------------------------------------------------------------------
+  notify-failure:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: [deploy-dev, deploy-uat, deploy-prod]
+    if: failure()
+    steps:
+      - name: Post failure summary
+        run: |
+          echo "## ❌ Deployment failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "One or more environments failed to apply." >> "$GITHUB_STEP_SUMMARY"
+          echo "Check the job logs above for details." >> "$GITHUB_STEP_SUMMARY"

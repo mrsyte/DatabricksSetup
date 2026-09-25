@@ -1,0 +1,18 @@
+# Checkov configuration
+# Add justified exceptions here. Keep the list minimal and document each skip.
+#
+# Format:
+#   skip-check:
+#     - CKV_AZURE_XXXX   # reason: <justification>
+
+skip-check: []
+
+# Directories to scan
+directory:
+  - .
+
+# Exclude bootstrap (it only runs once locally, not in CI)
+excluded-paths:
+  - bootstrap
+  - .terraform
+  - .git

@@ -1,0 +1,216 @@
+name: CI – Validate, Lint & Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.tf"
+      - "domains.yaml"
+      - "environments/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+
+# Cancel in-flight runs for the same PR when new commits are pushed
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write   # post plan comments
+  id-token: write        # Azure OIDC
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Static validation – fast, no cloud credentials needed
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
+      - name: Validate domains.yaml
+        run: python scripts/validate_domains.py
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        # Fix locally with: terraform fmt -recursive
+
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+  # ---------------------------------------------------------------------------
+  # 2. Security scan – IaC mis-configuration checks
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security Scan (Checkov)
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          quiet: true
+          # Fail the workflow on HIGH and CRITICAL findings.
+          # Add exceptions to .checkov.yaml as needed.
+          soft_fail: false
+          output_format: github_failed_only
+          download_external_modules: false
+
+  # ---------------------------------------------------------------------------
+  # 3. Terraform plan for each environment – posts output as PR comment
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan – ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      fail-fast: false          # show plan for all envs even if one fails
+      matrix:
+        environment: [dev, uat, prod]
+
+    # Each environment may have its own GitHub Environment with different secrets
+    environment: ${{ matrix.environment }}
+
+    env:
+      # Azure OIDC – no client secret stored anywhere
+      ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC:        "true"
+      # Databricks account-level credentials
+      TF_VAR_databricks_account_id:           ${{ secrets.DATABRICKS_ACCOUNT_ID }}
+      TF_VAR_databricks_admin_sp_client_id:   ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_ID }}
+      TF_VAR_databricks_admin_sp_object_id:   ${{ secrets.DATABRICKS_ADMIN_SP_OBJECT_ID }}
+      # Non-secret Databricks SP credentials used by the workspace provider
+      ARM_CLIENT_SECRET: ${{ secrets.DATABRICKS_ADMIN_SP_CLIENT_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+          terraform_wrapper: false   # raw exit codes for plan step
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ matrix.environment }}/databricks-hub-spoke.tfstate" \
+            -input=false
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan \
+            -var-file="environments/${{ matrix.environment }}/terraform.tfvars" \
+            -input=false \
+            -no-color \
+            -out=tfplan \
+            2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Post plan as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN_EXIT_CODE: ${{ steps.plan.outputs.exitcode }}
+        with:
+          script: |
+            const fs   = require('fs');
+            const env  = '${{ matrix.environment }}';
+            const sha  = context.sha.slice(0, 7);
+            const actor = context.actor;
+            const exitCode = process.env.PLAN_EXIT_CODE;
+
+            let planText = fs.readFileSync('plan_output.txt', 'utf8');
+            const MAX = 60000;
+            if (planText.length > MAX) {
+              planText = '...(first portion omitted)\n' + planText.slice(-MAX);
+            }
+
+            const statusEmoji = exitCode === '0' ? '✅' : (exitCode === '2' ? '⚠️' : '❌');
+            const statusLabel = exitCode === '0' ? 'No changes'
+              : exitCode === '2' ? 'Changes pending'
+              : 'Plan failed';
+
+            const body = [
+              `<!-- tf-plan-${env} -->`,
+              `## ${statusEmoji} Terraform Plan — \`${env}\` ${statusLabel}`,
+              '',
+              '<details>',
+              `<summary>Show full plan output (commit <code>${sha}</code>)</summary>`,
+              '',
+              '```hcl',
+              planText,
+              '```',
+              '</details>',
+              '',
+              `*Triggered by @${actor} · \`${context.eventName}\` · ${new Date().toISOString()}*`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const marker   = `<!-- tf-plan-${env} -->`;
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
+
+      - name: Upload plan artifact
+        if: steps.plan.outputs.exitcode == '2'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.environment }}-${{ github.run_id }}
+          path: tfplan
+          retention-days: 5
