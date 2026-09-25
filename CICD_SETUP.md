@@ -140,12 +140,14 @@ Navigate to: **Settings → Secrets and variables → Actions → Variables tab*
 |---|---|---|
 | `TF_BACKEND_RG` | `rg-tfstate-prod` | From `bootstrap/main.tf` output `resource_group_name` |
 | `TF_BACKEND_SA` | `sttfstateprodXXXXXX` | From `bootstrap/main.tf` output `storage_account_name` |
+| `WORKSPACE_BOOTSTRAP_ENABLED` | `true` | Set to `true` to run `workspace_bootstrap.py` after each apply. Requires a self-hosted runner or VPN — see Step 7. |
 
 ```bash
 REPO="mrsyte/DatabricksSetup"
 
 gh variable set TF_BACKEND_RG --repo "$REPO" --body "rg-tfstate-prod"
 gh variable set TF_BACKEND_SA --repo "$REPO" --body "sttfstateprodXXXXXX"
+gh variable set WORKSPACE_BOOTSTRAP_ENABLED --repo "$REPO" --body "true"
 ```
 
 ---
@@ -208,6 +210,52 @@ The CD workflow reads `secrets.TEAMS_DEPLOYMENTS_WEBHOOK_URL` in each deploy job
 
 ---
 
+## Step 7 – Workspace bootstrap (per-domain)
+
+After each `terraform apply`, the CD workflow optionally runs `scripts/workspace_bootstrap.py`
+to configure every domain workspace. This step is **opt-in** because domain workspace
+private endpoints are not reachable from public GitHub Actions runners.
+
+### What the bootstrap configures (per domain workspace)
+
+- **Security settings** — disables result downloads, enforces token lifetime limits
+- **Default cluster policy** — requires `app`, `domain`, `owner`, `cost_center` tags on all clusters
+- **Key Vault–backed secret scope** — creates a secret scope named after the domain (e.g. `finance`) backed by the domain's Azure Key Vault
+
+The script is idempotent — safe to re-run at any time.
+
+### Enabling the bootstrap step
+
+Two options:
+
+**Option A — Self-hosted runner inside the hub VNet** (recommended for production)
+
+1. Provision a VM or container in the hub VNet (or connected via the VPN Gateway).
+2. Register it as a GitHub Actions self-hosted runner with the label `hub-vnet`.
+3. Update the deploy jobs in `.github/workflows/cd.yml` to use `runs-on: hub-vnet`.
+4. Set the repository variable: `gh variable set WORKSPACE_BOOTSTRAP_ENABLED --repo "<org>/<repo>" --body "true"`
+
+**Option B — Manual post-deploy step** (simpler for smaller teams)
+
+Leave `WORKSPACE_BOOTSTRAP_ENABLED` unset or set to `false` and run the script
+manually from a machine connected via VPN after each apply:
+
+```bash
+# Get workspace URLs from Terraform state
+terraform output -json domain_workspace_urls > /tmp/workspaces.json
+export KEYVAULT_IDS_JSON="$(terraform output -json domain_keyvault_uris)"
+
+# Run the bootstrap
+DATABRICKS_CLIENT_ID="$ARM_CLIENT_ID" \
+DATABRICKS_CLIENT_SECRET="$ARM_CLIENT_SECRET" \
+AZURE_TENANT_ID="$ARM_TENANT_ID" \
+  python scripts/workspace_bootstrap.py /tmp/workspaces.json
+```
+
+See **[SETUP_GUIDE.md § 6](SETUP_GUIDE.md)** for full details.
+
+---
+
 ## Step 8 – Checkov exceptions
 
 If legitimate resources trigger Checkov findings (e.g. a VPN Gateway SKU
@@ -237,8 +285,9 @@ GitHub Secrets (Settings → Secrets → Actions)
 └── TEAMS_DEPLOYMENTS_WEBHOOK_URL        ← Teams Incoming Webhook (optional – skipped if absent)
 
 GitHub Variables (Settings → Secrets → Variables tab)
-├── TF_BACKEND_RG    ← resource group of TF state storage account
-└── TF_BACKEND_SA    ← storage account name for TF state
+├── TF_BACKEND_RG               ← resource group of TF state storage account
+├── TF_BACKEND_SA               ← storage account name for TF state
+└── WORKSPACE_BOOTSTRAP_ENABLED ← "true" to run workspace bootstrap after each apply (requires VPN/hub-vnet runner)
 ```
 
 ---
@@ -256,9 +305,14 @@ GitHub Variables (Settings → Secrets → Variables tab)
 ### On merge to `main`
 
 1. `validate` re-runs as a gate
-2. `deploy-dev` applies automatically
+2. `deploy-dev` applies automatically — creates/updates all domain spoke VNets, workspaces, storage accounts, Key Vaults, and Unity Catalog resources for the dev state
 3. `deploy-uat` applies automatically after dev succeeds
 4. `deploy-prod` waits for manual approval, then applies
+5. Each deploy job also:
+   - Runs `scripts/workspace_bootstrap.py` against all domain workspaces if `WORKSPACE_BOOTSTRAP_ENABLED == 'true'`
+   - Posts an Adaptive Card notification to the Teams Deployments channel (if `TEAMS_DEPLOYMENTS_WEBHOOK_URL` is set)
+
+> **Per-domain workspaces**: Each domain defined in `domains.yaml` gets its own dedicated Databricks workspace with three Unity Catalog catalogs (`{domain}_dev`, `{domain}_test`, `{domain}_prod`). A full apply with 5 domains takes approximately 40–60 minutes; each additional domain adds ~5–8 minutes.
 
 ### Manual re-apply (drift correction)
 

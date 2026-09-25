@@ -56,22 +56,22 @@ az provider register --namespace Microsoft.Authorization
 
 ## 2  Entra ID groups
 
-Create the following Entra groups **before** running Terraform. Record each group's **Object ID** — these become `owners_group_id`, `engineers_group_id`, `viewers_group_id` in `terraform.tfvars`.
+Create the following Entra groups **before** running Terraform. Record each group's **Object ID** — these become `owners_group_id`, `engineers_group_id`, `viewers_group_id` in `domains.yaml`.
 
-### 2.1  Platform admin group (workspace admins)
+### 2.1  Platform admin group (metastore admins)
 
 ```bash
 az ad group create \
   --display-name "databricks-workspace-admins" \
   --mail-nickname "databricks-workspace-admins"
 
-# Note the object ID in the output → databricks_admins_group_object_id
+# Note the object ID → databricks_admins_group_object_id in terraform.tfvars
 az ad group show --group "databricks-workspace-admins" --query id -o tsv
 ```
 
-### 2.2  Per-domain groups (repeat for each domain)
+### 2.2  Per-domain groups (repeat for each domain in domains.yaml)
 
-Replace `<DOMAIN>` with the domain key used in `terraform.tfvars` (e.g. `finance`):
+Replace `<DOMAIN>` with the domain key (e.g. `finance`):
 
 ```bash
 for ROLE in owners engineers viewers; do
@@ -82,7 +82,7 @@ for ROLE in owners engineers viewers; do
 done
 ```
 
-Collect the six object IDs (owners / engineers / viewers for each domain) and paste them into `terraform.tfvars`.
+Paste the Object IDs into the corresponding domain block in `domains.yaml`.
 
 ### 2.3  Add the Terraform SP to the admin group
 
@@ -96,9 +96,14 @@ az ad group member add \
 
 ## 3  Databricks account setup
 
-### 3.1  Enable Azure Databricks Premium
+### 3.1  About the workspace architecture
 
-The workspace Terraform creates requires **Premium SKU**. This is set in `modules/databricks_workspace/main.tf` (`sku = "premium"`) — no manual step needed.
+Each domain defined in `domains.yaml` gets its own **dedicated Databricks workspace** (Premium SKU, NPIP, private link). Workspace creation is handled automatically by `modules/domain_spoke`. No manual workspace creation is needed.
+
+Within each workspace, Unity Catalog provides three environment catalogs:
+- `{domain}_dev` — development
+- `{domain}_test` — integration testing
+- `{domain}_prod` — production
 
 ### 3.2  Link your Azure tenant to a Databricks account
 
@@ -109,7 +114,7 @@ The workspace Terraform creates requires **Premium SKU**. This is set in `module
 
 ### 3.3  Grant the Terraform SP Databricks account admin
 
-The SP must be able to create a Unity Catalog metastore and assign it to the workspace.
+The SP must be able to create a Unity Catalog metastore and assign it to each workspace.
 
 ```bash
 # Get the SP's object ID
@@ -129,7 +134,6 @@ databricks account service-principals create \
   --display-name "sp-databricks-terraform-prod" \
   --application-id "<client-id>"
 
-# Assign account admin role
 databricks account service-principals update \
   --id <sp-id-returned-above> \
   --roles account_admin
@@ -137,7 +141,7 @@ databricks account service-principals update \
 
 ### 3.4  Terraform SP authentication to Databricks
 
-The Databricks provider picks up credentials from the same ARM environment variables used by `azurerm`:
+The Databricks provider picks up credentials from the same ARM environment variables:
 
 ```bash
 export ARM_CLIENT_ID="<appId>"
@@ -183,29 +187,60 @@ backend "azurerm" {
 cd ..   # back to repo root
 
 # Initialise with remote state
-terraform init
+terraform init \
+  -backend-config="resource_group_name=rg-tfstate-prod" \
+  -backend-config="storage_account_name=sttfstateprodXXXXXX" \
+  -backend-config="container_name=tfstate" \
+  -backend-config="key=dev/databricks-hub-spoke.tfstate"
 
 # Preview
-terraform plan -var-file=terraform.tfvars -out=tfplan
+terraform plan -var-file=environments/dev/terraform.tfvars -out=tfplan
 
 # Apply (all modules in dependency order)
 terraform apply tfplan
 ```
 
-Expected apply time: ~25–35 minutes (VPN Gateway creation takes longest).
+Expected apply time: **40–60 minutes** for a full deployment. The VPN Gateway takes the longest (~30 min); each Databricks workspace adds ~5–8 minutes. With 5 sample domains, plan for approximately 60 minutes on first apply.
 
 ---
 
-## 6  Post-deployment: VPN client profile
+## 6  Post-deployment: workspace bootstrap
 
-After the VPN Gateway is provisioned:
+After `terraform apply` completes, run the bootstrap script to configure each domain workspace with security settings, the default cluster policy, and the Key Vault–backed secret scope.
+
+> **Network access required.** Workspace private endpoints are not reachable from the public internet. Run this step from a machine connected via the hub VPN or from a VM inside the hub VNet.
+
+```bash
+# Get workspace URLs and Key Vault IDs from Terraform state
+terraform output -json domain_workspace_urls > /tmp/workspaces.json
+export KEYVAULT_IDS_JSON="$(terraform output -json domain_keyvault_uris)"
+
+# Run the bootstrap (uses the same SP credentials)
+DATABRICKS_CLIENT_ID="$ARM_CLIENT_ID" \
+DATABRICKS_CLIENT_SECRET="$ARM_CLIENT_SECRET" \
+AZURE_TENANT_ID="$ARM_TENANT_ID" \
+  python scripts/workspace_bootstrap.py /tmp/workspaces.json
+```
+
+The script is **idempotent** — safe to re-run. It configures per workspace:
+- Workspace security settings (disable result downloads, enforce token lifetime, etc.)
+- Default cluster policy (required tags: `app`, `domain`, `owner`, `cost_center`)
+- Key Vault–backed secret scope named after the domain (e.g. `finance`)
+
+---
+
+## 7  Post-deployment: VPN client profile
+
+After the VPN Gateway is provisioned, distribute the VPN client profile to users:
 
 ```bash
 # Generate the VPN client profile package
-VPN_GW_ID=$(terraform output -raw hub_vnet_id | sed 's|/virtualNetworks/.*||')/providers/Microsoft.Network/virtualNetworkGateways/vpng-adb-prod-hub
+VPN_GW_NAME="vpng-adb-$(terraform output -raw environment)-hub"
+RG="$(terraform output -raw hub_vnet_id | grep -oP '(?<=resourceGroups/)[^/]+')"
 
 az network vnet-gateway vpn-client generate \
-  --ids "$VPN_GW_ID" \
+  --name "$VPN_GW_NAME" \
+  --resource-group "$RG" \
   --processor-architecture Amd64
 ```
 
@@ -213,43 +248,55 @@ Distribute the downloaded `.zip` to VPN users. They install the **Azure VPN Clie
 
 ---
 
-## 7  Databricks workspace access (users on VPN)
+## 8  Accessing domain workspaces (users on VPN)
 
-Once connected to VPN, users reach the workspace at:
+Each domain has its own workspace URL. List all workspace URLs:
 
+```bash
+terraform output domain_workspace_urls
 ```
-terraform output workspace_url
+
+Example output:
+```
+{
+  "finance"      = "https://adb-xxx1.azuredatabricks.net"
+  "marketing"    = "https://adb-xxx2.azuredatabricks.net"
+  "operations"   = "https://adb-xxx3.azuredatabricks.net"
+  ...
+}
 ```
 
-The workspace URL resolves to a private IP via the `privatelink.azuredatabricks.net` DNS zone. It is unreachable from the public internet.
+Workspace URLs resolve to private IPs via the `privatelink.azuredatabricks.net` DNS zone. They are unreachable from the public internet — VPN connection is required.
+
+Domain team members are granted access through their Entra group membership (owners / engineers / viewers).
 
 ---
 
-## 8  Secret scope usage
+## 9  Secret scope usage
 
-From a Databricks notebook:
+Each domain workspace has a Key Vault–backed secret scope named after the domain. From a notebook in the `finance` workspace:
 
 ```python
-# Read a secret from the domain's Key Vault–backed scope
+# Read a secret from the domain Key Vault
 secret_value = dbutils.secrets.get(scope="finance", key="my-secret-name")
 
-# List secrets in a scope
+# List available secrets
 dbutils.secrets.list("finance")
 ```
 
-Add secrets to the Key Vault in the relevant domain resource group using:
+Add secrets to the Key Vault in the domain resource group:
 
 ```bash
 az keyvault secret set \
-  --vault-name "kv-adb-prod-<domain>-XXXXXX" \
+  --vault-name "kv-adb-prod-finance-XXXXXX" \
   --name "my-secret-name" \
   --value "super-secret-value"
 ```
 
+> The secret scope is created by `scripts/workspace_bootstrap.py`. If it is missing, re-run the bootstrap step above.
+
 ---
 
-## 9  Adding a new domain later
+## 10  Adding a new domain
 
-1. Add a new entry to `domains` in `terraform.tfvars` with a non-overlapping `address_space`.
-2. Create the three Entra groups and add their object IDs.
-3. `terraform plan && terraform apply` — only new resources are created; existing ones are unchanged.
+See **[DOMAIN_MANAGEMENT.md](DOMAIN_MANAGEMENT.md)** for the complete step-by-step guide including CIDR allocation table, `domains.yaml` example, expected Terraform plan output, and workspace bootstrap instructions.

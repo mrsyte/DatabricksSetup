@@ -19,6 +19,7 @@
 - [ ] No secrets committed (no real UUIDs, emails, or credentials in YAML/tfvars)
 - [ ] For new domains: Entra group Object IDs confirmed by Azure AD admin
 - [ ] For new domains: CIDR confirmed non-overlapping (validation script checks this)
+- [ ] For new domains: workspace bootstrap run after `terraform apply` (from VPN or hub VNet — see SETUP_GUIDE.md § 6)
 - [ ] For destructive changes: domain/data owner sign-off obtained
 
 ## Plan summary
